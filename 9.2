@@ -1,0 +1,92 @@
+import org.hibernate.*;
+import org.hibernate.boot.*;
+import org.hibernate.boot.registry.*;
+import jakarta.persistence.*;
+import java.util.*;
+
+@Entity
+@Table(name="student")
+class Student {
+    @Id
+    @GeneratedValue(strategy=GenerationType.IDENTITY)
+    private int id;
+    private String name;
+    private int marks;
+    public Student() {}
+    public Student(String n,int m){name=n;marks=m;}
+    public int getId(){return id;}
+    public String getName(){return name;}
+    public int getMarks(){return marks;}
+    public void setName(String n){name=n;}
+    public void setMarks(int m){marks=m;}
+}
+
+public class StudentHibernateApp {
+    private static SessionFactory factory=null;
+    static {
+        StandardServiceRegistry reg=new StandardServiceRegistryBuilder()
+            .applySetting("hibernate.connection.driver_class","org.h2.Driver")
+            .applySetting("hibernate.connection.url","jdbc:h2:mem:testdb")
+            .applySetting("hibernate.hbm2ddl.auto","update")
+            .applySetting("hibernate.dialect","org.hibernate.dialect.H2Dialect")
+            .applySetting("hibernate.show_sql","true").build();
+        Metadata meta=new MetadataSources(reg).addAnnotatedClass(Student.class).buildMetadata();
+        factory=meta.getSessionFactoryBuilder().build();
+    }
+
+    public static int add(String n,int m){
+        Session s=factory.openSession();
+        Transaction t=s.beginTransaction();
+        Student st=new Student(n,m);
+        s.persist(st);
+        t.commit();
+        s.close();
+        return st.getId();
+    }
+
+    public static Student find(int id){
+        Session s=factory.openSession();
+        Student st=s.get(Student.class,id);
+        s.close();
+        return st;
+    }
+
+    public static List<Student> all(){
+        Session s=factory.openSession();
+        List<Student> list=s.createQuery("from Student",Student.class).list();
+        s.close();
+        return list;
+    }
+
+    public static void update(int id,String n,int m){
+        Session s=factory.openSession();
+        Transaction t=s.beginTransaction();
+        Student st=s.get(Student.class,id);
+        st.setName(n);
+        st.setMarks(m);
+        s.merge(st);
+        t.commit();
+        s.close();
+    }
+
+    public static void remove(int id){
+        Session s=factory.openSession();
+        Transaction t=s.beginTransaction();
+        Student st=s.get(Student.class,id);
+        s.remove(st);
+        t.commit();
+        s.close();
+    }
+
+    public static void main(String[] a){
+        int id1=add("Alice",95);
+        int id2=add("Bob",88);
+        update(id2,"Bob Marley",90);
+        for(Student s:all())
+            System.out.println(s.getId()+" "+s.getName()+" "+s.getMarks());
+        remove(id1);
+        System.out.println("After Delete:");
+        for(Student s:all())
+            System.out.println(s.getId()+" "+s.getName()+" "+s.getMarks());
+    }
+}
