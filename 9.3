@@ -1,0 +1,75 @@
+package com.app;
+import org.springframework.boot.*;
+import org.springframework.boot.autoconfigure.*;
+import org.springframework.context.annotation.*;
+import org.springframework.transaction.annotation.*;
+import org.springframework.data.jpa.repository.*;
+import jakarta.persistence.*;
+import java.util.*;
+
+@Entity
+class Student {
+    @Id
+    @GeneratedValue(strategy=GenerationType.IDENTITY)
+    int id;
+    String name;
+    int marks;
+}
+
+interface StudentRepo extends JpaRepository<Student,Integer> {}
+
+@Service
+@Transactional
+class StudentService {
+    private final StudentRepo repo;
+    public StudentService(StudentRepo r){this.repo=r;}
+    public void add(String n,int m){Student s=new Student();s.name=n;s.marks=m;repo.save(s);}
+    public List<Student> all(){return repo.findAll();}
+    public void update(int id,String n,int m){Student s=repo.findById(id).get();s.name=n;s.marks=m;repo.save(s);}
+    public void del(int id){repo.deleteById(id);}
+}
+
+@SpringBootApplication
+public class App implements CommandLineRunner {
+    private final StudentService svc;
+    public App(StudentService s){this.svc=s;}
+    public static void main(String[] a){SpringApplication.run(App.class,a);}
+    public void run(String...a){
+        svc.add("Alice",95);
+        svc.add("Bob",88);
+        svc.update(2,"Bobby",90);
+        svc.del(1);
+        svc.all().forEach(s->System.out.println(s.id+" "+s.name+" "+s.marks));
+        System.exit(0);
+    }
+}
+spring.datasource.url=jdbc:h2:mem:testdb
+spring.datasource.driver-class-name=org.h2.Driver
+spring.jpa.hibernate.ddl-auto=create
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+    <groupId>com.app</groupId>
+    <artifactId>spring-hibernate-tx</artifactId>
+    <version>1.0</version>
+    <dependencies>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-data-jpa</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.h2database</groupId>
+            <artifactId>h2</artifactId>
+            <scope>runtime</scope>
+        </dependency>
+    </dependencies>
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-maven-plugin</artifactId>
+            </plugin>
+        </plugins>
+    </build>
+</project>
