@@ -1,0 +1,145 @@
+#include <sqlite3.h>
+#include <iostream>
+#include <memory>
+#include <string>
+#include <vector>
+#include <optional>
+#include <stdexcept>
+
+class DB {
+public:
+    explicit DB(const std::string &file) {
+        if (sqlite3_open(file.c_str(), &db_) != SQLITE_OK)
+            throw std::runtime_error(sqlite3_errmsg(db_));
+    }
+    ~DB() { if (db_) sqlite3_close(db_); }
+    sqlite3* raw() const { return db_; }
+    void exec(const std::string &sql) {
+        char *err = nullptr;
+        if (sqlite3_exec(db_, sql.c_str(), nullptr, nullptr, &err) != SQLITE_OK) {
+            std::string e = err ? err : "";
+            sqlite3_free(err);
+            throw std::runtime_error(e);
+        }
+    }
+private:
+    sqlite3 *db_{};
+};
+
+class Transaction {
+public:
+    explicit Transaction(DB &db): db_(db) { db_.exec("BEGIN TRANSACTION;"); }
+    void commit() { db_.exec("COMMIT;"); committed_=true; }
+    ~Transaction(){ if(!committed_) db_.exec("ROLLBACK;"); }
+private:
+    DB &db_;
+    bool committed_=false;
+};
+
+struct Student { int id; std::string name; int marks; };
+
+struct IStudentRepo {
+    virtual ~IStudentRepo()=default;
+    virtual void createTable()=0;
+    virtual int insert(const Student&s)=0;
+    virtual std::optional<Student> find(int id)=0;
+    virtual std::vector<Student> all()=0;
+    virtual void update(const Student&s)=0;
+    virtual void remove(int id)=0;
+};
+
+class StudentRepo : public IStudentRepo {
+public:
+    explicit StudentRepo(DB &db):db_(db){}
+    void createTable(){
+        db_.exec("CREATE TABLE IF NOT EXISTS student(id INTEGER PRIMARY KEY AUTOINCREMENT,name TEXT,marks INTEGER);");
+    }
+    int insert(const Student&s){
+        sqlite3_stmt*stmt;
+        sqlite3_prepare_v2(db_.raw(),"INSERT INTO student(name,marks) VALUES(?,?);",-1,&stmt,nullptr);
+        sqlite3_bind_text(stmt,1,s.name.c_str(),-1,SQLITE_TRANSIENT);
+        sqlite3_bind_int(stmt,2,s.marks);
+        sqlite3_step(stmt);
+        sqlite3_finalize(stmt);
+        return (int)sqlite3_last_insert_rowid(db_.raw());
+    }
+    std::optional<Student> find(int id){
+        sqlite3_stmt*stmt;
+        sqlite3_prepare_v2(db_.raw(),"SELECT id,name,marks FROM student WHERE id=?;",-1,&stmt,nullptr);
+        sqlite3_bind_int(stmt,1,id);
+        if(sqlite3_step(stmt)==SQLITE_ROW){
+            Student s{sqlite3_column_int(stmt,0),(const char*)sqlite3_column_text(stmt,1),sqlite3_column_int(stmt,2)};
+            sqlite3_finalize(stmt);
+            return s;
+        }
+        sqlite3_finalize(stmt);
+        return std::nullopt;
+    }
+    std::vector<Student> all(){
+        std::vector<Student>v;
+        sqlite3_stmt*stmt;
+        sqlite3_prepare_v2(db_.raw(),"SELECT id,name,marks FROM student;",-1,&stmt,nullptr);
+        while(sqlite3_step(stmt)==SQLITE_ROW){
+            v.push_back({sqlite3_column_int(stmt,0),(const char*)sqlite3_column_text(stmt,1),sqlite3_column_int(stmt,2)});
+        }
+        sqlite3_finalize(stmt);
+        return v;
+    }
+    void update(const Student&s){
+        sqlite3_stmt*stmt;
+        sqlite3_prepare_v2(db_.raw(),"UPDATE student SET name=?,marks=? WHERE id=?;",-1,&stmt,nullptr);
+        sqlite3_bind_text(stmt,1,s.name.c_str(),-1,SQLITE_TRANSIENT);
+        sqlite3_bind_int(stmt,2,s.marks);
+        sqlite3_bind_int(stmt,3,s.id);
+        sqlite3_step(stmt);
+        sqlite3_finalize(stmt);
+    }
+    void remove(int id){
+        sqlite3_stmt*stmt;
+        sqlite3_prepare_v2(db_.raw(),"DELETE FROM student WHERE id=?;",-1,&stmt,nullptr);
+        sqlite3_bind_int(stmt,1,id);
+        sqlite3_step(stmt);
+        sqlite3_finalize(stmt);
+    }
+private:
+    DB &db_;
+};
+
+class StudentService {
+public:
+    explicit StudentService(IStudentRepo&r):repo(r){}
+    int add(const std::string&name,int marks){
+        Transaction t(db());
+        int id=repo.insert({0,name,marks});
+        t.commit();
+        return id;
+    }
+    void edit(int id,const std::string&name,int marks){
+        Transaction t(db());
+        repo.update({id,name,marks});
+        t.commit();
+    }
+    void del(int id){
+        Transaction t(db());
+        repo.remove(id);
+        t.commit();
+    }
+    void list(){
+        for(auto&s:repo.all())
+            std::cout<<s.id<<" "<<s.name<<" "<<s.marks<<"\n";
+    }
+private:
+    DB&db(){ return *((DB*)nullptr); }
+    IStudentRepo &repo;
+};
+
+int main(){
+    DB db("students.db");
+    StudentRepo repo(db);
+    repo.createTable();
+    Transaction t(db);
+    int id1=repo.insert({0,"Alice",95});
+    int id2=repo.insert({0,"Bob",88});
+    t.commit();
+    for(auto&s:repo.all()) std::cout<<s.id<<" "<<s.name<<" "<<s.marks<<"\n";
+}
